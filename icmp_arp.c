@@ -385,30 +385,27 @@ int main(int argc, char *argv[]) {
                         struct arp_table *table = arp_table_instance();
                         uint8_t *hwaddr = ng_get_dst_macaddr(arp_hdr->arp_data.arp_sip);
                         if (hwaddr == NULL) {
-				            struct arp_entry *entry = rte_malloc("arp_entry",sizeof(struct arp_entry), 0);
-				            if (entry) {
-					            memset(entry, 0, sizeof(struct arp_entry));
+				struct arp_entry *entry = rte_malloc("arp_entry",sizeof(struct arp_entry), 0);
+				if (entry) {
+					memset(entry, 0, sizeof(struct arp_entry));
 
-					            entry->ip = arp_hdr->arp_data.arp_sip;
-					            rte_memcpy(entry->hwaddr, arp_hdr->arp_data.arp_sha.addr_bytes, RTE_ETHER_ADDR_LEN);
-					            entry->type = ARP_ENTRY_STATUS_DYNAMIC;
+					entry->ip = arp_hdr->arp_data.arp_sip;
+					rte_memcpy(entry->hwaddr, arp_hdr->arp_data.arp_sha.addr_bytes, RTE_ETHER_ADDR_LEN);
+					entry->type = ARP_ENTRY_STATUS_DYNAMIC;
 					
-					            LL_ADD(entry, table->entries);
-					            table->count ++;
-				            }
+					LL_ADD(entry, table->entries);
+					table->count ++;
+				}
                         }
 #if ENABLE_DEBUG
-						struct arp_entry *iter;
-						for (iter = table->entries; iter != NULL; iter = iter->next) {
+			struct arp_entry *iter;
+			for (iter = table->entries; iter != NULL; iter = iter->next) {					
+				struct in_addr addr;
+				addr.s_addr = iter->ip;
+				print_ethaddr("arp table --> mac: ", (struct rte_ether_addr *)iter->hwaddr);								
+				printf(" ip: %s \n", inet_ntoa(addr));
 					
-							struct in_addr addr;
-							addr.s_addr = iter->ip;
-
-							print_ethaddr("arp table --> mac: ", (struct rte_ether_addr *)iter->hwaddr);
-								
-							printf(" ip: %s \n", inet_ntoa(addr));
-					
-						}
+			}
 #endif
                         rte_pktmbuf_free(rx_pkts[i]);
                     } 
@@ -474,15 +471,15 @@ int main(int argc, char *argv[]) {
         }
 #if ENABLE_TIMER
 
-		static uint64_t prev_tsc = 0, cur_tsc;
-		uint64_t diff_tsc;
+	static uint64_t prev_tsc = 0, cur_tsc;
+	uint64_t diff_tsc;
 
-		cur_tsc = rte_rdtsc();
-		diff_tsc = cur_tsc - prev_tsc;
-		if (diff_tsc > TIMER_RESOLUTION_CYCLES) {
-			rte_timer_manage();
-			prev_tsc = cur_tsc;
-		}
+	cur_tsc = rte_rdtsc();
+	diff_tsc = cur_tsc - prev_tsc;
+	if (diff_tsc > TIMER_RESOLUTION_CYCLES) {
+		rte_timer_manage();
+		prev_tsc = cur_tsc;
+	}
 
 #endif
     }
