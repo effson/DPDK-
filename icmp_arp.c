@@ -27,7 +27,8 @@ int gDpdkPortId = 0;
 
 #if ENABLE_ARP_REPLY
 
-static uint8_t gDefaultArpMac[RTE_ETHER_ADDR_LEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+static uint8_t gEtherBroadcastMac[RTE_ETHER_ADDR_LEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+static uint8_t gDefaultArpMac[RTE_ETHER_ADDR_LEN] = {0x0};
 
 #endif
 
@@ -150,7 +151,11 @@ static int ng_encode_arp_pkt(uint8_t *msg, uint16_t opcode, uint8_t *dst_mac, ui
     // 1 ethhdr
     struct rte_ether_hdr *eth = (struct rte_ether_hdr *)msg;
     rte_memcpy(eth->src_addr.addr_bytes, gSrcMac, RTE_ETHER_ADDR_LEN);
-    rte_memcpy(eth->dst_addr.addr_bytes, dst_mac, RTE_ETHER_ADDR_LEN);
+    if (!strncmp((const char *)dst_mac, (const char *)gEtherBroadcastMac, RTE_ETHER_ADDR_LEN)) {
+        rte_memcpy(eth->dst_addr.addr_bytes, gEtherBroadcastMac, RTE_ETHER_ADDR_LEN);
+    } else {
+        rte_memcpy(eth->dst_addr.addr_bytes, dst_mac, RTE_ETHER_ADDR_LEN);
+    }
     eth->ether_type = rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP);
 
     // 2 arp hdr
@@ -162,7 +167,7 @@ static int ng_encode_arp_pkt(uint8_t *msg, uint16_t opcode, uint8_t *dst_mac, ui
     arp->arp_opcode = rte_cpu_to_be_16(opcode); // ARP 操作码为响应，即回复
 
     rte_memcpy(arp->arp_data.arp_sha.addr_bytes, gSrcMac, RTE_ETHER_ADDR_LEN);
-    rte_memcpy(arp->arp_data.arp_tha.addr_bytes, dst_mac, RTE_ETHER_ADDR_LEN);
+    rte_memcpy(arp->arp_data.arp_tha.addr_bytes, gDefaultArpMac, RTE_ETHER_ADDR_LEN);
     arp->arp_data.arp_sip = sip;
     arp->arp_data.arp_tip = dip;
 
@@ -305,8 +310,7 @@ arp_request_timer_cb(__attribute__((unused)) struct rte_timer *tim,
 		struct rte_mbuf *arpbuf = NULL;
 		uint8_t *dstmac = ng_get_dst_macaddr(dstip);
 		if (dstmac == NULL) {
-			arpbuf = ng_send_arp(mbuf_pool, RTE_ARP_OP_REQUEST, gDefaultArpMac, gLocalIp, dstip);
-		
+			arpbuf = ng_send_arp(mbuf_pool, RTE_ARP_OP_REQUEST, gEtherBroadcastMac, gLocalIp, dstip);		
 		} else {
 			arpbuf = ng_send_arp(mbuf_pool, RTE_ARP_OP_REQUEST, dstmac, gLocalIp, dstip);
 		}
@@ -347,6 +351,7 @@ int main(int argc, char *argv[]) {
 	uint64_t hz = rte_get_timer_hz();
 	unsigned lcore_id = rte_lcore_id();
 	rte_timer_reset(&arp_timer, hz, PERIODICAL, lcore_id, arp_request_timer_cb, mbuf_pool);
+
 #endif
 
     while (1) {
@@ -399,10 +404,13 @@ int main(int argc, char *argv[]) {
                         }
 #if ENABLE_DEBUG
 			struct arp_entry *iter;
-			for (iter = table->entries; iter != NULL; iter = iter->next) {					
+			for (iter = table->entries; iter != NULL; iter = iter->next) {
+					
 				struct in_addr addr;
 				addr.s_addr = iter->ip;
-				print_ethaddr("arp table --> mac: ", (struct rte_ether_addr *)iter->hwaddr);								
+
+				print_ethaddr("arp table --> mac: ", (struct rte_ether_addr *)iter->hwaddr);
+								
 				printf(" ip: %s \n", inet_ntoa(addr));
 					
 			}
@@ -458,6 +466,11 @@ int main(int argc, char *argv[]) {
 #if ENABLE_ICMP
             if (ipv4_hdr->next_proto_id == IPPROTO_ICMP) {
                 struct rte_icmp_hdr *icmp_hdr = (struct rte_icmp_hdr *)(ipv4_hdr + 1);
+
+                struct in_addr addr;
+                addr.s_addr = ipv4_hdr->src_addr;
+                printf("icmp ---> src: %s ", inet_ntoa(addr));
+
                 if (icmp_hdr->icmp_type == RTE_IP_ICMP_ECHO_REQUEST) {
                     struct rte_mbuf *icmp_buf = ng_send_icmp(mbuf_pool, eth_hdr->src_addr.addr_bytes,
 				        ipv4_hdr->dst_addr, ipv4_hdr->src_addr, icmp_hdr->icmp_ident, icmp_hdr->icmp_seq_nb);
@@ -471,15 +484,15 @@ int main(int argc, char *argv[]) {
         }
 #if ENABLE_TIMER
 
-	static uint64_t prev_tsc = 0, cur_tsc;
-	uint64_t diff_tsc;
+		static uint64_t prev_tsc = 0, cur_tsc;
+		uint64_t diff_tsc;
 
-	cur_tsc = rte_rdtsc();
-	diff_tsc = cur_tsc - prev_tsc;
-	if (diff_tsc > TIMER_RESOLUTION_CYCLES) {
-		rte_timer_manage();
-		prev_tsc = cur_tsc;
-	}
+		cur_tsc = rte_rdtsc();
+		diff_tsc = cur_tsc - prev_tsc;
+		if (diff_tsc > TIMER_RESOLUTION_CYCLES) {
+			rte_timer_manage();
+			prev_tsc = cur_tsc;
+		}
 
 #endif
     }
